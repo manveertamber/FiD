@@ -38,25 +38,21 @@ class Dataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         example = self.data[index]
         question = self.question_prefix + " " + example['question']
-        target = self.get_target(example)
 
         if 'ctxs' in example and self.n_context is not None:
             f = self.title_prefix + " {} " + self.passage_prefix + " {}"
-            contexts = example['ctxs'][:self.n_context]
-            passages = [f.format(c['title'], c['text']) for c in contexts]
-            scores = [float(c['score']) for c in contexts]
-            scores = torch.tensor(scores)
-            # TODO(egrave): do we want to keep this?
+            contexts = np.array(example['ctxs'][:self.n_context])
+            passages = np.array([f.format(c['title'], c['text']) for c in contexts])
+            scores = torch.tensor([float(c['score']) for c in contexts])
+            # TODO(egrave): do we want to keep this?                                                                                                                                                       
             if len(contexts) == 0:
-                contexts = [question]
+                contexts = np.array([question])
         else:
             passages, scores = None, None
-
-
         return {
             'index' : index,
             'question' : question,
-            'target' : target,
+            'target' : self.get_target(example),
             'passages' : passages,
             'scores' : scores
         }
