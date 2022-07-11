@@ -215,6 +215,7 @@ def load_passages(path):
     logger.info(f'Loading passages from: {path}')
     passages = []
     with open(path) as fin:
+        csv.field_size_limit(sys.maxsize)
         reader = csv.reader(fin, delimiter='\t')
         for k, row in enumerate(reader):
             if not row[0] == 'id':
