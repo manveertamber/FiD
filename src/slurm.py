@@ -154,7 +154,10 @@ def init_distributed_mode(params):
         # RANK - required; can be set either here, or in a call to init function
 
         #print("Initializing PyTorch distributed ...")
+        rank = params.node_id * params.n_gpu_per_node  + params.local_rank
         torch.distributed.init_process_group(
-            init_method='env://',
+            init_method='tcp://'+str(params.main_addr)+":"+str(params.main_port),
             backend='nccl',
+            world_size=params.world_size,
+            rank=rank
         )
