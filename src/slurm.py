@@ -89,7 +89,7 @@ def init_distributed_mode(params):
         # define master address and master port
         hostnames = subprocess.check_output(['scontrol', 'show', 'hostnames', os.environ['SLURM_JOB_NODELIST']])
         params.main_addr = hostnames.split()[0].decode('utf-8')
-        assert 10001 <= params.main_port <= 20000 or params.world_size == 1
+        assert 2000 <= params.main_port <= 20000 or params.world_size == 1
         #print(PREFIX + "Master address: %s" % params.master_addr)
         #print(PREFIX + "Master port   : %i" % params.master_port)
 
