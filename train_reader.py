@@ -124,6 +124,7 @@ def evaluate(model, dataset, tokenizer, collator, opt):
     return exactmatch
 
 if __name__ == "__main__":
+    
     options = Options()
     options.add_reader_options()
     options.add_optim_options()
@@ -133,6 +134,8 @@ if __name__ == "__main__":
     torch.manual_seed(opt.seed)
     src.slurm.init_distributed_mode(opt)
     src.slurm.init_signal_handler()
+
+    torch.set_default_dtype(torch.bfloat16)
 
     checkpoint_path = Path(opt.checkpoint_dir)/opt.name
     checkpoint_exists = checkpoint_path.exists()
@@ -172,7 +175,8 @@ if __name__ == "__main__":
     eval_dataset = src.data.Dataset(eval_examples, opt.n_context)
 
     if not checkpoint_exists and opt.model_path == "none":
-        t5 = transformers.T5ForConditionalGeneration.from_pretrained(model_name, torch_dtype=torch.bfloat16)
+        t5 = transformers.T5ForConditionalGeneration.from_pretrained(model_name)
+        t5.to(dtype=torch.bfloat16)
         model = src.model.FiDT5(t5.config)
         model.load_t5(t5.state_dict())
         model = model.to(opt.local_rank, dtype=torch.bfloat16)
