@@ -163,7 +163,7 @@ class CheckpointWrapper(torch.nn.Module):
                 output = self.module(*inputs, **kwargs)
                 empty = torch.tensor(
                     [],
-                    dtype=torch.float,
+                    dtype=torch.bfloat16,
                     device=output[0].device,
                     requires_grad=True)
                 output = tuple(x if x is not None else empty for x in output)

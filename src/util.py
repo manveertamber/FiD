@@ -74,7 +74,7 @@ def load(model_class, dir_path, opt, reset_params=False):
     optimizer_path = os.path.join(epoch_path, "optimizer.pth.tar")
     logger.info("Loading %s" % epoch_path)
     model = model_class.from_pretrained(epoch_path)
-    model = model.to(opt.device)
+    model = model.to(opt.device, dtype=torch.bfloat16)
     logger.info("loading checkpoint %s" %optimizer_path)
     checkpoint = torch.load(optimizer_path, map_location=opt.device)
     opt_checkpoint = checkpoint["opt"]
@@ -164,8 +164,8 @@ def sum_main(x, opt):
 def weighted_average(x, count, opt):
     if not opt.is_distributed:
         return x, count
-    t_loss = torch.tensor([x * count], device=opt.device)
-    t_total = torch.tensor([count], device=opt.device)
+    t_loss = torch.tensor([x * count], device=opt.device, dtype=torch.bfloat16)
+    t_total = torch.tensor([count], device=opt.device, dtype=torch.bfloat16)
     t_loss = sum_main(t_loss, opt)
     t_total = sum_main(t_total, opt)
     return (t_loss / t_total).item(), t_total.item()
