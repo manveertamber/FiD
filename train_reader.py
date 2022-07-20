@@ -172,7 +172,7 @@ if __name__ == "__main__":
     eval_dataset = src.data.Dataset(eval_examples, opt.n_context)
 
     if not checkpoint_exists and opt.model_path == "none":
-        t5 = transformers.T5ForConditionalGeneration.from_pretrained(model_name)
+        t5 = transformers.T5ForConditionalGeneration.from_pretrained(model_name, torch_dtype=torch.bfloat16)
         model = src.model.FiDT5(t5.config)
         model.load_t5(t5.state_dict())
         model = model.to(opt.local_rank, dtype=torch.bfloat16)
