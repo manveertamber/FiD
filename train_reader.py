@@ -13,6 +13,7 @@ from pathlib import Path
 from torch.utils.data import DataLoader, RandomSampler, DistributedSampler, SequentialSampler
 from src.options import Options
 
+
 import src.slurm
 import src.util
 import src.evaluation
@@ -28,7 +29,8 @@ def train(model, optimizer, scheduler, step, train_dataset, eval_dataset, opt, c
         except:
             tb_logger = None
             logger.warning('Tensorboard is not available.')
-
+            
+    #torch.backends.cuda.matmul.allow_tf32 = True
     torch.manual_seed(opt.global_rank + opt.seed) #different seed for different sampling depending on global_rank
     train_sampler = RandomSampler(train_dataset)
     train_dataloader = DataLoader(
@@ -36,32 +38,26 @@ def train(model, optimizer, scheduler, step, train_dataset, eval_dataset, opt, c
         sampler=train_sampler,
         batch_size=opt.per_gpu_batch_size,
         drop_last=True,
-        num_workers=10,
+        num_workers=8,
         collate_fn=collator
     )
-
+    
     loss, curr_loss = 0.0, 0.0
-    epoch = 1
     model.train()
     while step < opt.total_steps:
-        epoch += 1
         for i, batch in enumerate(train_dataloader):
             step += 1
             (idx, labels, _, context_ids, context_mask) = batch
-            
-            train_loss = model(
-                input_ids=context_ids.cuda(),
-                attention_mask=context_mask.cuda(),
-                labels=labels.cuda()
-            )[0]
-
+            with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                train_loss = model(input_ids=context_ids.cuda(), attention_mask=context_mask.cuda(), labels=labels.cuda())[0]
+            train_loss = train_loss / opt.accumulation_steps
             train_loss.backward()
 
             if step % opt.accumulation_steps == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), opt.clip)
                 optimizer.step()
                 scheduler.step()
-                model.zero_grad()
+                model.zero_grad(set_to_none=True)
 
             train_loss = src.util.average_main(train_loss, opt)
             curr_loss += train_loss.item()
@@ -96,14 +92,14 @@ def evaluate(model, dataset, tokenizer, collator, opt):
         sampler=sampler,
         batch_size=opt.per_gpu_batch_size,
         drop_last=False,
-        num_workers=10,
-        collate_fn=collator
-    )
+        num_workers=8,
+        collate_fn=collator)
     model.eval()
-    total = 0
-    exactmatch = []
     model = model.module if hasattr(model, "module") else model
     with torch.no_grad():
+        total = 0
+        exactmatch = []
+
         for i, batch in enumerate(dataloader):
             (idx, _, _, context_ids, context_mask) = batch
 
@@ -120,7 +116,8 @@ def evaluate(model, dataset, tokenizer, collator, opt):
                 total += 1
                 exactmatch.append(score)
 
-    exactmatch, total = src.util.weighted_average(np.mean(exactmatch), total, opt)
+        exactmatch, total = src.util.weighted_average(np.mean(exactmatch), total, opt)
+
     return exactmatch
 
 if __name__ == "__main__":
@@ -134,8 +131,6 @@ if __name__ == "__main__":
     torch.manual_seed(opt.seed)
     src.slurm.init_distributed_mode(opt)
     src.slurm.init_signal_handler()
-
-    torch.set_default_dtype(torch.bfloat16)
 
     checkpoint_path = Path(opt.checkpoint_dir)/opt.name
     checkpoint_exists = checkpoint_path.exists()
@@ -156,7 +151,7 @@ if __name__ == "__main__":
     model_class = src.model.FiDT5
 
     #load data
-    tokenizer = transformers.T5Tokenizer.from_pretrained(model_name)
+    tokenizer = transformers.T5Tokenizer.from_pretrained("./t5-large-saved")
     collator = src.data.Collator(opt.text_maxlength, tokenizer, answer_maxlength=opt.answer_maxlength)
 
     # use golbal rank and world size to split the eval set on multiple gpus
@@ -175,17 +170,17 @@ if __name__ == "__main__":
     eval_dataset = src.data.Dataset(eval_examples, opt.n_context)
 
     if not checkpoint_exists and opt.model_path == "none":
-        t5 = transformers.T5ForConditionalGeneration.from_pretrained(model_name)
-        t5.to(dtype=torch.bfloat16)
+        t5 = transformers.T5ForConditionalGeneration.from_pretrained("./t5-large-saved", torch_dtype=torch.bfloat16)
         model = src.model.FiDT5(t5.config)
         model.load_t5(t5.state_dict())
         model = model.to(opt.local_rank, dtype=torch.bfloat16)
         optimizer, scheduler = src.util.set_optim(opt, model)
         step, best_dev_em = 0, 0.0
     elif opt.model_path == "none":
-        load_path = checkpoint_path / 'checkpoint' / 'latest'
+        load_path = checkpoint_path / 'checkpoint' / 'best_dev'
         model, optimizer, scheduler, opt_checkpoint, step, best_dev_em = \
             src.util.load(model_class, load_path, opt, reset_params=False)
+        step = 0
         logger.info(f"Model loaded from {load_path}")
     else:
         model, optimizer, scheduler, opt_checkpoint, step, best_dev_em = \
@@ -201,7 +196,8 @@ if __name__ == "__main__":
             output_device=opt.local_rank,
             find_unused_parameters=False,
         )
-
+    model.bfloat16()
+    
     logger.info("Start training")
     train(
         model,

@@ -153,8 +153,11 @@ def init_distributed_mode(params):
         # WORLD_SIZE - required; can be set either here, or in a call to init function
         # RANK - required; can be set either here, or in a call to init function
 
-        #print("Initializing PyTorch distributed ...")
+        print("Initializing PyTorch distributed ...")
+
         rank = params.node_id * params.n_gpu_per_node  + params.local_rank
+        print("RANK:", rank)
+        print("WORLD SIZE:", params.world_size) 
         torch.distributed.init_process_group(
             init_method='tcp://'+str(params.main_addr)+":3456",
             backend='nccl',

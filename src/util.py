@@ -73,7 +73,7 @@ def load(model_class, dir_path, opt, reset_params=False):
     epoch_path = os.path.realpath(dir_path)
     optimizer_path = os.path.join(epoch_path, "optimizer.pth.tar")
     logger.info("Loading %s" % epoch_path)
-    model = model_class.from_pretrained(epoch_path)
+    model = model_class.from_pretrained(epoch_path, torch_dtype=torch.bfloat16)
     model = model.to(opt.device, dtype=torch.bfloat16)
     logger.info("loading checkpoint %s" %optimizer_path)
     checkpoint = torch.load(optimizer_path, map_location=opt.device)
@@ -123,7 +123,7 @@ class FixedScheduler(torch.optim.lr_scheduler.LambdaLR):
 
 def set_dropout(model, dropout_rate):
     for mod in model.modules():
-        if isinstance(mod, torch.nn.Dropout):
+        if isinstance(mod, torch.nn.average_main):
             mod.p = dropout_rate
 
 
@@ -164,8 +164,8 @@ def sum_main(x, opt):
 def weighted_average(x, count, opt):
     if not opt.is_distributed:
         return x, count
-    t_loss = torch.tensor([x * count], device=opt.device, dtype=torch.bfloat16)
-    t_total = torch.tensor([count], device=opt.device, dtype=torch.bfloat16)
+    t_loss = torch.tensor([x * count], device=opt.device)
+    t_total = torch.tensor([count], device=opt.device)
     t_loss = sum_main(t_loss, opt)
     t_total = sum_main(t_total, opt)
     return (t_loss / t_total).item(), t_total.item()
