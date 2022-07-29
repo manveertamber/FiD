@@ -123,7 +123,7 @@ class FixedScheduler(torch.optim.lr_scheduler.LambdaLR):
 
 def set_dropout(model, dropout_rate):
     for mod in model.modules():
-        if isinstance(mod, torch.nn.average_main):
+        if isinstance(mod, torch.nn.Dropout):
             mod.p = dropout_rate
 
 
