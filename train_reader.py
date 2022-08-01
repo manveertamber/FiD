@@ -30,7 +30,7 @@ def train(model, optimizer, scheduler, step, train_dataset, eval_dataset, opt, c
             tb_logger = None
             logger.warning('Tensorboard is not available.')
             
-    #torch.backends.cuda.matmul.allow_tf32 = True
+    
     torch.manual_seed(opt.global_rank + opt.seed) #different seed for different sampling depending on global_rank
     train_sampler = RandomSampler(train_dataset)
     train_dataloader = DataLoader(
@@ -48,19 +48,26 @@ def train(model, optimizer, scheduler, step, train_dataset, eval_dataset, opt, c
         for i, batch in enumerate(train_dataloader):
             step += 1
             (idx, labels, _, context_ids, context_mask) = batch
-            with torch.cuda.amp.autocast(dtype=torch.bfloat16):
-                train_loss = model(input_ids=context_ids.cuda(), attention_mask=context_mask.cuda(), labels=labels.cuda())[0]
-            train_loss = train_loss / opt.accumulation_steps
-            train_loss.backward()
-
+            
             if step % opt.accumulation_steps == 0:
+                with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                    train_loss = model(input_ids=context_ids.cuda(), attention_mask=context_mask.cuda(), labels=labels.cuda())[0] / opt.accumulation_steps
+                train_loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), opt.clip)
                 optimizer.step()
                 scheduler.step()
                 model.zero_grad(set_to_none=True)
+                train_loss = src.util.average_main(train_loss, opt)
+                curr_loss += train_loss.item()
+            else:
+                with model.no_sync():
+                    with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                        train_loss = model(input_ids=context_ids.cuda(), attention_mask=context_mask.cuda(), labels=labels.cuda())[0] / opt.accumulation_steps
 
-            train_loss = src.util.average_main(train_loss, opt)
-            curr_loss += train_loss.item()
+                    train_loss.backward()
+
+                    train_loss = src.util.average_main(train_loss, opt)
+                    curr_loss += train_loss.item()
 
             if step % opt.eval_freq == 0:
                 dev_em = evaluate(model, eval_dataset, tokenizer, collator, opt)
@@ -87,6 +94,7 @@ def train(model, optimizer, scheduler, step, train_dataset, eval_dataset, opt, c
                 break
 
 def evaluate(model, dataset, tokenizer, collator, opt):
+    model.eval()
     sampler = SequentialSampler(dataset)
     dataloader = DataLoader(dataset,
         sampler=sampler,
@@ -94,7 +102,6 @@ def evaluate(model, dataset, tokenizer, collator, opt):
         drop_last=False,
         num_workers=8,
         collate_fn=collator)
-    model.eval()
     model = model.module if hasattr(model, "module") else model
     with torch.no_grad():
         total = 0
@@ -121,7 +128,7 @@ def evaluate(model, dataset, tokenizer, collator, opt):
     return exactmatch
 
 if __name__ == "__main__":
-    
+    torch.backends.cuda.matmul.allow_tf32 = True
     options = Options()
     options.add_reader_options()
     options.add_optim_options()
@@ -196,8 +203,9 @@ if __name__ == "__main__":
             output_device=opt.local_rank,
             find_unused_parameters=False,
         )
+        
+    torch.cuda.empty_cache()
     model.bfloat16()
-    
     logger.info("Start training")
     train(
         model,

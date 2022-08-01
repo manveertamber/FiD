@@ -73,8 +73,8 @@ def load(model_class, dir_path, opt, reset_params=False):
     epoch_path = os.path.realpath(dir_path)
     optimizer_path = os.path.join(epoch_path, "optimizer.pth.tar")
     logger.info("Loading %s" % epoch_path)
-    model = model_class.from_pretrained(epoch_path, torch_dtype=torch.bfloat16)
-    model = model.to(opt.device, dtype=torch.bfloat16)
+    model = model_class.from_pretrained(epoch_path)
+    model = model.to(opt.device)
     logger.info("loading checkpoint %s" %optimizer_path)
     checkpoint = torch.load(optimizer_path, map_location=opt.device)
     opt_checkpoint = checkpoint["opt"]

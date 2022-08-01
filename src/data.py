@@ -43,7 +43,7 @@ class Dataset(torch.utils.data.Dataset):
             f = self.title_prefix + " {} " + self.passage_prefix + " {}"
             contexts = np.array(example['ctxs'][:self.n_context])
             passages = np.array([f.format(c['title'], c['text']) for c in contexts])
-            scores = torch.tensor([float(c['score']) for c in contexts], dtype=torch.bfloat16)
+            scores = torch.tensor([float(c['score']) for c in contexts])
             # TODO(egrave): do we want to keep this?                                                                                                                                                       
             if len(contexts) == 0:
                 contexts = np.array([question])
