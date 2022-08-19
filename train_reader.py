@@ -38,8 +38,9 @@ def train(model, optimizer, scheduler, step, train_dataset, eval_dataset, opt, c
         sampler=train_sampler,
         batch_size=opt.per_gpu_batch_size,
         drop_last=True,
-        num_workers=8,
-        collate_fn=collator
+        num_workers=6,
+        collate_fn=collator,
+        pin_memory=True
     )
     
     loss, curr_loss = 0.0, 0.0
@@ -68,7 +69,7 @@ def train(model, optimizer, scheduler, step, train_dataset, eval_dataset, opt, c
 
                     train_loss = src.util.average_main(train_loss, opt)
                     curr_loss += train_loss.item()
-
+            
             if step % opt.eval_freq == 0:
                 dev_em = evaluate(model, eval_dataset, tokenizer, collator, opt)
                 model.train()
@@ -86,7 +87,7 @@ def train(model, optimizer, scheduler, step, train_dataset, eval_dataset, opt, c
                         tb_logger.add_scalar("Evaluation", dev_em, step)
                         tb_logger.add_scalar("Training", curr_loss / (opt.eval_freq), step)
                     curr_loss = 0.
-
+                
             if opt.is_main and step % opt.save_freq == 0:
                 src.util.save(model, optimizer, scheduler, step, best_dev_em,
                           opt, checkpoint_path, f"step-{step}")
@@ -94,19 +95,18 @@ def train(model, optimizer, scheduler, step, train_dataset, eval_dataset, opt, c
                 break
 
 def evaluate(model, dataset, tokenizer, collator, opt):
-    model.eval()
     sampler = SequentialSampler(dataset)
     dataloader = DataLoader(dataset,
         sampler=sampler,
         batch_size=opt.per_gpu_batch_size,
         drop_last=False,
-        num_workers=8,
+        num_workers=6,
         collate_fn=collator)
+    model.eval()
+    total = 0
+    exactmatch = []
     model = model.module if hasattr(model, "module") else model
     with torch.no_grad():
-        total = 0
-        exactmatch = []
-
         for i, batch in enumerate(dataloader):
             (idx, _, _, context_ids, context_mask) = batch
 
@@ -123,12 +123,11 @@ def evaluate(model, dataset, tokenizer, collator, opt):
                 total += 1
                 exactmatch.append(score)
 
-        exactmatch, total = src.util.weighted_average(np.mean(exactmatch), total, opt)
-
+    exactmatch, total = src.util.weighted_average(np.mean(exactmatch), total, opt)
     return exactmatch
 
 if __name__ == "__main__":
-    torch.backends.cuda.matmul.allow_tf32 = True
+    #torch.backends.cuda.matmul.allow_tf32 = True
     options = Options()
     options.add_reader_options()
     options.add_optim_options()
@@ -177,17 +176,18 @@ if __name__ == "__main__":
     eval_dataset = src.data.Dataset(eval_examples, opt.n_context)
 
     if not checkpoint_exists and opt.model_path == "none":
-        t5 = transformers.T5ForConditionalGeneration.from_pretrained("./t5-large-saved", torch_dtype=torch.bfloat16)
+        t5 = transformers.T5ForConditionalGeneration.from_pretrained("./t5-large-saved")
         model = src.model.FiDT5(t5.config)
         model.load_t5(t5.state_dict())
-        model = model.to(opt.local_rank, dtype=torch.bfloat16)
+        model = model.to(opt.local_rank)
         optimizer, scheduler = src.util.set_optim(opt, model)
         step, best_dev_em = 0, 0.0
     elif opt.model_path == "none":
         load_path = checkpoint_path / 'checkpoint' / 'best_dev'
         model, optimizer, scheduler, opt_checkpoint, step, best_dev_em = \
             src.util.load(model_class, load_path, opt, reset_params=False)
-        step = 0
+        #step = 0
+        #optimizer, scheduler = src.util.set_optim(opt, model)
         logger.info(f"Model loaded from {load_path}")
     else:
         model, optimizer, scheduler, opt_checkpoint, step, best_dev_em = \
@@ -195,7 +195,7 @@ if __name__ == "__main__":
         logger.info(f"Model loaded from {opt.model_path}")
 
     model.set_checkpoint(opt.use_checkpoint)
-
+    
     if opt.is_distributed:
         model = torch.nn.parallel.DistributedDataParallel(
             model,
@@ -204,8 +204,6 @@ if __name__ == "__main__":
             find_unused_parameters=False,
         )
         
-    torch.cuda.empty_cache()
-    model.bfloat16()
     logger.info("Start training")
     train(
         model,

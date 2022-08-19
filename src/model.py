@@ -168,7 +168,6 @@ class CheckpointWrapper(torch.nn.Module):
                     requires_grad=True)
                 output = tuple(x if x is not None else empty for x in output)
                 return output
-
             output = torch.utils.checkpoint.checkpoint(
                 custom_forward,
                 hidden_states,

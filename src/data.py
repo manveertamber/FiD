@@ -72,7 +72,7 @@ def encode_passages(batch_text_passages, tokenizer, max_length):
         p = tokenizer.batch_encode_plus(
             text_passages,
             max_length=max_length,
-            padding='max_length',
+            padding='max_length', 
             return_tensors='pt',
             truncation=True
         )

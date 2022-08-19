@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 import torch.distributed as dist
 import csv
+import transformers
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +133,8 @@ def set_optim(opt, model):
         optimizer = torch.optim.Adam(model.parameters(), lr=opt.lr)
     elif opt.optim == 'adamw':
         optimizer = torch.optim.AdamW(model.parameters(), lr=opt.lr, weight_decay=opt.weight_decay)
+    elif opt.optim == 'ada':
+        optimizer = transformers.Adafactor(model.parameters(), lr=0.001, scale_parameter=False, relative_step=False)
     if opt.scheduler == 'fixed':
         scheduler = FixedScheduler(optimizer)
     elif opt.scheduler == 'linear':
